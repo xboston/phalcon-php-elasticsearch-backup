@@ -41,6 +41,9 @@ class backupTask extends Task
      */
     private $elasticaType;
 
+    private $elasticsearchHost = 'localhost';
+    private $elasticsearchPort = 9200;
+
     private $fileName;
 
     private $sizePerShard = 100;
@@ -87,19 +90,31 @@ class backupTask extends Task
             die;
         }
 
-        $sizePerShard       = $this->dispatcher->getParam('sizePerShard', 'int', false);
-        $this->sizePerShard = $sizePerShard ? $sizePerShard : $this->sizePerShard;
+        $this->sizePerShard = $this->dispatcher->getParam('sizePerShard', 'int', false) ?: $this->sizePerShard;
+
+        $this->elasticsearchHost = $this->dispatcher->getParam('host', 'string', false) ?: $this->elasticsearchHost;
+        $this->elasticsearchPort = $this->dispatcher->getParam('port', 'int', false) ?: $this->elasticsearchPort;
+
+        $connectParams = [
+            'host' => $this->elasticsearchHost,
+            'port' => $this->elasticsearchPort
+        ];
+        $this->client  = new Client($connectParams);
 
 
-        $this->client        = new Client();
+        try {
+
+            $this->client->getStatus();
+        } catch (\Elastica\Exception\Connection\HttpException $e) {
+
+            $context = ['host' => $this->elasticsearchHost, 'port' => $this->elasticsearchPort];
+            $this->log->error('Подключение к серверу elasticsearch отсутствует: http://{host}:{port}', $context);
+            die;
+        }
+
         $this->elasticaIndex = $this->client->getIndex($this->indexName);
         $this->elasticaType  = $this->elasticaIndex->getType($this->typeName);
 
-    }
-
-    public function mainAction()
-    {
-        $this->log->info('Необходимо выбрать задачу');
     }
 
     /**
@@ -109,6 +124,12 @@ class backupTask extends Task
     {
 
         $this->folderName = __DIR__ . '/backup/';
+
+        if (!$this->elasticaIndex->exists()) {
+
+            $this->log->error('Индекс для бэкапа отсутствует: {indexName}', ['indexName' => $this->indexName]);
+            return;
+        }
 
         $this->checkFileName();
         $this->checkBackupFolder();
@@ -222,7 +243,7 @@ $di['dispatcher'] = function () {
     $dispatcher = new Dispatcher;
 
     $dispatcher->setDefaultTask('Backup');
-    $dispatcher->setDefaultAction('main');
+    $dispatcher->setDefaultAction('backup');
 
     return $dispatcher;
 };
