@@ -15,6 +15,7 @@ use Phalcon\CLI\Console;
 use Elastica\Client;
 use Elastica\ScanAndScroll;
 use Elastica\Search;
+use Elastica\Document;
 
 
 /**
@@ -51,6 +52,11 @@ class backupTask extends Task
     private $expiryTime = '1m';
 
     private $folderName;
+
+    private $restoreParams
+        = [
+            'steps' => 1000
+        ];
 
     protected $indexName;
 
@@ -118,7 +124,7 @@ class backupTask extends Task
     }
 
     /**
-     * @actionInfo(name="Бэкап данных")
+     * @actionInfo(name='Бэкап данных')
      */
     public function backupAction()
     {
@@ -174,12 +180,73 @@ class backupTask extends Task
     }
 
     /**
-     * @actionInfo(name="Восстановление данных")
+     * @actionInfo(name='Восстановление данных')
      */
     public function restoreAction()
     {
-        $this->log->info('Восстановление');
 
+
+        $backupFile = $this->dispatcher->getParam('fileName', 'string', false);
+
+        if (!is_file($backupFile)) {
+
+            $this->log->error('Файл {fileName} не найден', ['fileName' => $backupFile]);
+            return false;
+        }
+
+        $documentsForSave = [];
+
+        $i = 0;
+
+        $handle = fopen($backupFile, 'r') or die('Не удалось получить хэндл');
+
+        $context = ['indexName' => $this->indexName, 'typeName' => $this->typeName, 'fileName' => $backupFile];
+        $this->log->info('Восстановление в {indexName} / {typeName} файла {fileName}', $context);
+
+        if ($handle) {
+
+            while (!feof($handle)) {
+
+                $row        = fgets($handle);
+                $decodedRow = json_decode($row, true);
+
+                if (is_array($decodedRow)) {
+
+                    $documentsForSave[] = new Document($decodedRow['_id'], $decodedRow['_source']);
+                    $i++;
+                    if ($i == $this->restoreParams['steps']) {
+
+                        $this->saveInfoInElastic($documentsForSave);
+                        $this->log->info('Сохранено документов: {count}', ['count' => $i]);
+                        $i = 0;
+                    }
+                }
+            }
+
+            $this->saveInfoInElastic($documentsForSave);
+
+            fclose($handle);
+        }
+
+    }
+
+    /**
+     * @param array $documentsForSave
+     */
+    private function saveInfoInElastic(array $documentsForSave)
+    {
+        if (count($documentsForSave) == 0) {
+
+            return;
+        }
+
+        $resultUpdate = $this->elasticaType->addDocuments($documentsForSave);
+
+        if (!$resultUpdate->isOk()) {
+
+            $this->log->error('Ошибка записи документов');
+            exit;
+        }
     }
 
     /**
@@ -257,7 +324,7 @@ try {
 
     $console = new Console($di);
 
-    $handleParams = array();
+    $handleParams = [];
     array_shift($argv);
 
     foreach ($argv as $param) {
