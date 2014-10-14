@@ -185,8 +185,9 @@ class backupTask extends Task
     public function restoreAction()
     {
 
+        $backupFile  = $this->dispatcher->getParam('fileName', 'string', false);
+        $itemsInStep = $this->dispatcher->getParam('itemsInStep', 'string', $this->restoreParams['steps']);
 
-        $backupFile = $this->dispatcher->getParam('fileName', 'string', false);
 
         if (!is_file($backupFile)) {
 
@@ -214,7 +215,7 @@ class backupTask extends Task
 
                     $documentsForSave[] = new Document($decodedRow['_id'], $decodedRow['_source']);
                     $i++;
-                    if ($i == $this->restoreParams['steps']) {
+                    if ($i == $itemsInStep) {
 
                         $this->saveInfoInElastic($documentsForSave);
                         $this->log->info('Сохранено документов: {count}', ['count' => $i]);
